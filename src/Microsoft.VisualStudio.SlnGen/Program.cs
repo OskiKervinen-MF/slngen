@@ -216,11 +216,27 @@ namespace Microsoft.VisualStudio.SlnGen
                         return 1;
                     }
 
+                    // Reject option combinations that cannot work in multi-solution mode before doing any expensive loading
+                    if (!arguments.ValidateSolutionPerProject(forwardingLogger))
+                    {
+                        return 1;
+                    }
+
                     (TimeSpan evaluationTime, int evaluationCount) = ProjectLoader.LoadProjects(CurrentDevelopmentEnvironment.MSBuildExe, projectCollection, projectEntryPaths, arguments.GetGlobalProperties(), forwardingLogger);
 
                     if (forwardingLogger.HasLoggedErrors)
                     {
                         return 1;
+                    }
+
+                    // Multi-solution mode reuses the graph that was just loaded and never launches Visual Studio
+                    if (arguments.SolutionPerProject)
+                    {
+                        int result = GenerateSolutionPerProject(arguments, projectCollection, projectEntryPaths, forwardingLogger);
+
+                        featureFlags.Dispose();
+
+                        return result;
                     }
 
                     (string solutionFileFullPath, int customProjectTypeGuidCount, int solutionItemCount, Guid solutionGuid) = SlnFile.GenerateSolutionFile(arguments, projectCollection.LoadedProjects.Where(i => !i.GlobalProperties.ContainsKey("TargetFramework")), forwardingLogger);
@@ -321,6 +337,64 @@ namespace Microsoft.VisualStudio.SlnGen
 
                 return 2;
             }
+        }
+
+        /// <summary>
+        /// Generates one solution per entry project from the projects that are already loaded.
+        /// </summary>
+        /// <param name="arguments">The <see cref="ProgramArguments" /> to use.</param>
+        /// <param name="projectCollection">The <see cref="ProjectCollection" /> containing all loaded projects.</param>
+        /// <param name="projectEntryPaths">The paths of the entry projects.</param>
+        /// <param name="logger">A <see cref="ISlnGenLogger" /> to use for logging.</param>
+        /// <returns>Zero if every solution was generated, otherwise non-zero.</returns>
+        private static int GenerateSolutionPerProject(ProgramArguments arguments, ProjectCollection projectCollection, IReadOnlyList<string> projectEntryPaths, ISlnGenLogger logger)
+        {
+            // The same project can be listed more than once (for example via overlapping wildcards)
+            List<string> entryPaths = projectEntryPaths
+                .Select(Path.GetFullPath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            ProjectReferenceClosure closure = new ProjectReferenceClosure(projectCollection.LoadedProjects);
+
+            List<(string EntryPath, string SolutionPath, IReadOnlyList<Project> Projects)> solutions = new ();
+
+            // Work out every solution's content and path first so problems are found before anything is written
+            foreach (string entryPath in entryPaths)
+            {
+                IReadOnlyList<Project> projects = closure.GetProjects(entryPath);
+
+                if (projects.Count == 0)
+                {
+                    logger.LogError($"Project \"{entryPath}\" was not loaded");
+
+                    continue;
+                }
+
+                solutions.Add((entryPath, Path.GetFullPath(SlnFile.GetSolutionFileFullPath(arguments, projects[0])), projects));
+            }
+
+            // Two entry projects writing to the same file would silently overwrite each other
+            foreach (IGrouping<string, (string EntryPath, string SolutionPath, IReadOnlyList<Project> Projects)> collision in solutions
+                .GroupBy(i => i.SolutionPath, StringComparer.OrdinalIgnoreCase)
+                .Where(i => i.Count() > 1))
+            {
+                logger.LogError($"Projects {string.Join(", ", collision.Select(i => $"\"{i.EntryPath}\""))} would all generate the solution \"{collision.Key}\".  Use different project names or solution directories.");
+            }
+
+            if (logger.HasLoggedErrors)
+            {
+                return 1;
+            }
+
+            foreach ((string _, string _, IReadOnlyList<Project> projects) in solutions)
+            {
+                SlnFile.GenerateSolutionFile(arguments, projects, logger);
+            }
+
+            logger.LogMessageHigh($"Generated {solutions.Count:N0} solution(s)");
+
+            return logger.HasLoggedErrors ? 1 : 0;
         }
 
         private static IEnumerable<ILogger> GetLoggers(ConsoleForwardingLogger consoleLogger, ProgramArguments arguments)
