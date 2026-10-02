@@ -61,6 +61,16 @@ A: Find duplicate output paths up front, log an error that lists them, and write
 Q: Where will the PR go, and which CI should be triggered and monitored?
 A: Local only, no PR yet. Verification is a local build and local tests; no push or CI.
 
+Agent: Following the decision above, the branch was not pushed, no PR was opened and no Copilot review was polled. Implementation was committed locally in logical units.
+
+Agent: Plan Testing step 1 (`dotnet build SlnGen.sln`) cannot succeed in this environment because the VSIX project fails with "VSIX deployment is not supported with 'dotnet build'" (unrelated to this change). I built `Microsoft.VisualStudio.SlnGen` (all TFMs) and the unit test project instead, both with 0 warnings and 0 errors.
+
+Agent: Plan Testing step 2 covered the inner-build case by evaluating one project twice with `TargetFramework` set and unset, rather than by building a multi-targeted SDK project. This tests the same closure behaviour on every TFM without SDK resolution.
+
+Agent: On net472, 50 existing tests fail ("tools version 'Current' is unrecognized"). The same 50 fail on `main` (baseline 50 failed / 78 passed; with this change 50 failed / 95 passed), so they are environmental. All new tests pass. net8.0, net9.0, net10.0 and net11.0 pass fully (126 tests each).
+
+Agent: Plan Testing step 7 (smoke script) passes with the net472 slngen.exe and `dotnet slngen.dll` for net11.0. For net8.0/9.0/10.0, `dotnet slngen.dll` fails before reaching this code with "Could not load System.Runtime 11.0.0.0"; this also happens on unmodified `main` (newest SDK's MSBuild is picked up by an older runtime), so it is not caused by this change.
+
 -----
 ## Plan
 
