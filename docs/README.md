@@ -93,11 +93,18 @@ Options:
                                           --property:WarningLevel=2;MyProperty=true
   -d|--solutiondir <path>             An optional path to the directory in which the solution file will be generated. Defaults to the same directory as the project. --solutionfile will take precedence over this switch.
   -o|--solutionfile <path>            An optional path to the solution file to generate. Defaults to the same directory as the project.
+  --solution-per-project              Generates a separate solution for each specified project, containing only that project and its transitive project references. Cannot be combined with --solutionfile. Visual Studio is not launched.
   -v|--verbosity                      Display this amount of information in the event log. The available verbosity levels are:
                                         q[uiet], m[inimal], n[ormal], d[etailed], and diag[nostic].
   --version                           Display version information only.
   --vsversion                         Specifies that a version of Visual Studio should be included in the solution file. When specified with no value, the value will be set to the version of Visual Studio that is used to open the solution.
   -?|-h|--help                        Show help information.
+```
+
+To generate a separate solution for each of several projects while evaluating their shared dependencies only once, use `--solution-per-project`:
+
+```
+slngen --solution-per-project src\App1\App1.csproj src\App2\App2.csproj
 ```
 
 # Getting Started (MSBuild Target)
